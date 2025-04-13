@@ -1,0 +1,463 @@
+---
+title: "HW5"
+author: "Yongliang Cen"
+date: "2025-04-03"
+output: html_document
+---
+
+### 
+
+---
+title: "HW5"
+author: "Yongliang Cen"
+date: "2025-04-03"
+output: html_document
+---
+
+\*\*This all looks great! Your code is well structured and very clean. My only piece of feedback (which is more personal preference but could be helpful) I look making my variable names more descriptive, rather than "f" for the data set something like "data" just so as I could it's easier to remember each name!\*\*
+
+### \[1\] Using the “KamilarAndCooperData.csv” dataset, run a linear regression looking at log(HomeRange_km2) in relation to log(Body_mass_female_mean) and report your $\beta$ coeffiecients (slope and intercept).
+
+```{r}
+# Direct access to data
+f <- read.csv("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN588_Fall23/KamilarAndCooperData.csv")
+
+# subset data so NA or blank is removed
+df_sub <- subset(f, !is.na(Body_mass_female_mean) & !is.na(HomeRange_km2))
+
+# Use linear regression model on the log transformed variables (Homerange_km2) and (Bodymass_female_mean)
+fit <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = df_sub)
+
+# print summary so we can look at the slope and intercept
+summary(fit)
+
+coefficient <- coef(fit)
+cat("Intercept (β0):", coefficient[1], "\n")
+cat("Slope (β1):", coefficient[2], "\n")
+```
+
+### \[2\] Then, use bootstrapping to sample from your data 1000 times with replacement, each time fitting the same model and calculating the same coefficients. This generates a sampling distribution for each 𝛽coefficient.
+
+```{r}
+# storing baseline estimates which we will later compare to our bootstrap results
+fit_se <- summary(fit)$coefficients[, "Std. Error"]
+fit_ci <- confint(fit)
+
+# set seed for reproducibility
+set.seed(1234)
+
+# setting the number of times we will bootstrap
+n_boot <- 1000
+
+# creating a matrix with initial value set to NA with 1000 rows matching with the times of our bootstrap number and make two column one for intercept and one for the slope 
+boot_coefs <- matrix(NA, nrow = n_boot, ncol = 2)
+
+# naming the columns
+colnames(boot_coefs) <- c("Intercept", "log_Body_mass_female_mean")
+
+# calculate the number of rows in df_sub which represents the sample size and used during bootstrapping
+n <- nrow(df_sub)
+
+# bootstrap start
+for (i in 1:n_boot) {
+  # each time we will take a sample with replacement to obtain sample from the population, 
+  boot_sample <- df_sub[sample(1:n, size = n, replace = TRUE), ]
+  # fit the sample data into the linear log transformed regression model
+  boot_fit <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = boot_sample)
+  # update the matrix we have previously created with the coefficient (the slope and the intercept) of this sample model
+  boot_coefs[i, ] <- coef(boot_fit)
+}
+
+# calculate bootstrap matrix standard errors, this fucntion apply the sd() fucntion to all the columns in the matrix
+boot_se <- apply(boot_coefs, 2, sd)
+
+# calculate the bootstrap 95 percent confidence interval, 
+# apply the quantile function to the columns and extrac the 2.5 percent as well as the 97.5 percentc
+boot_ci <- apply(boot_coefs, 2, quantile, probs = c(0.025, 0.975))
+
+#printing and comapring results
+cat("Model SE from lm():\n")
+print(fit_se)
+cat("\nBootstrap SE:\n")
+print(boot_se)
+
+cat("\nModel 95% CI from confint():\n")
+print(fit_ci)
+cat("\nBootstrap 95% CI:\n")
+print(boot_ci)
+
+### Response to questions: The bootstrap estimates for the standard errors are very similar to those using the lm() model alone. This indicates that the assumptions underlying the lm() method—such as normal ditribution is reasonable. In addition, the 95% confidence intervals derived from the bootstrap procedure are also very similar to those obtained from the entire dataset via confint(). This further corroborates the model and its assumptions' validity.
+```
+
+### Extra Credit
+
+```{r}
+bootstrap_function <- function(d, m, conf.level = 0.95, n = 1000) {
+  # the input m is as characters and need to change it to formula to feed into the lm()
+  model_formula <- as.formula(m)
+  
+  # fit the model into the liner regression model
+  lm_model <- lm(model_formula, data = d)
+  
+  # Extract the slope and intercept coefficient of th model
+  lm_coef <- coef(lm_model)
+  
+  # Retrieves the standard errors for the coefficients from the summary of the linear model
+  lm_se <- summary(lm_model)$coefficients[, "Std. Error"]
+  
+  # calculate the confidence interval for the model
+  lm_ci <- confint(lm_model, level = conf.level)
+  
+  # Define coefficient names from the full model estimates
+  coef_names <- names(lm_coef)
+  
+  # create a matrix to store the bootstrap values
+  boot_coefs <- matrix(NA, nrow = n, ncol = length(coef_names))
+  colnames(boot_coefs) <- coef_names
+  
+  # set seed for reproducibility 
+  set.seed(303)
+  
+  # Determine the sample size in th input data frame d
+  N <- nrow(d)
+  
+  # use for loop like previous to 
+  for (i in 1:n) {
+      # get a sample from 1 to sample size with replacement
+      boot_sample <- d[sample(1:N, size = N, replace = TRUE), ]
+      
+      # Fit linear model on the bootstrap sample.
+      boot_model <- lm(model_formula, data = boot_sample)
+      
+      # Store the estimated coefficients in th  matrix we created fill them row by row
+      boot_coefs[i, ] <- coef(boot_model)
+    }
+  
+  # Compute the mean of the bootstrap coefficient estimates for each coefficient
+  boot_mean <- apply(boot_coefs, 2, mean)
+  
+  # Compute the bootstrap standard errors as the standard deviation of the bootstrap estimates
+  boot_se <- apply(boot_coefs, 2, sd)
+  
+  # Compute the bootstrap confidence intervals.
+  boot_ci <- apply(boot_coefs, 2, quantile, probs = c((1 - conf.level)/2, 1 - (1 - conf.level)/2))
+  
+  # Combine the full-model and bootstrap results into a single data frame.
+  result_df <- data.frame(
+    Coefficient = coef_names,
+    model_Estimate = lm_coef,
+    model_SE = lm_se,
+    model_CI_Lower = lm_ci[, 1],
+    model_Upper = lm_ci[, 2],
+    Bootstrap_Mean = boot_mean,
+    Bootstrap_SE = boot_se,
+    Bootstrap_CI_Lower = boot_ci[1, ],
+    Bootstrap_CI_Upper = boot_ci[2, ]
+  )
+  
+  # Return the resulting data frame so that the caller can review the estimates.
+  return(result_df)
+}
+```
+
+### Testing the function
+
+```{r}
+
+
+f <- read.csv("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN588_Fall23/KamilarAndCooperData.csv")
+
+
+# subset data so NA or blank is removed
+df_sub <- subset(f, !is.na(Body_mass_female_mean) & !is.na(HomeRange_km2))
+
+result <- bootstrap_function(df_sub, "log(HomeRange_km2) ~ log(Body_mass_female_mean)")
+
+# Print the results
+print(result)
+
+```
+
+### Extra Credit
+
+\`\`\`{r}
+
+# Fit the full linear model and extract its coefficients.
+
+full_model \<- lm(log(HomeRange_km2) \~ log(Body_mass_female_mean), data = df_sub) full_coef \<- coef(full_model)
+
+# Create a sequence of bootstrap replicate counts from 10 to 200 by 10.
+
+boot_counts \<- seq(10, 200, by = 10)
+
+# Initialize data frames to store results for the intercept and slope.
+
+results_intercept \<- data.frame( n_boot = boot_counts, Full = full_coef\[1\], Boot_Mean = NA, Boot_CI_Lower = NA, Boot_CI_Upper = NA )
+
+results_slope \<- data.frame( n_boot = boot_counts, Full = full_coef\[2\], Boot_Mean = NA, Boot_CI_Lower = NA, Boot_CI_Upper = NA )
+
+# Set a seed for reproducibility.
+
+set.seed(303)
+
+# Determine the sample size of the data.
+
+N \<- nrow(df_sub)
+
+# Loop over the specified numbers of bootstrap replicates.
+
+for (i in seq_along(boot_counts)) { current_n \<- boot_counts\[i\]
+
+\# Initialize a matrix to store bootstrap coefficient estimates for the current replicate count. boot_coefs_temp \<- matrix(NA, nrow = current_n, ncol = 2) colnames(boot_coefs_temp) \<- names(full_coef)
+
+\# For each bootstrap replicate, sample with replacement and fit the model. for (j in 1:current_n) { boot_sample \<- df_sub\[sample(1:N, size = N, replace = TRUE), \] boot_model \<- lm(log(HomeRange_km2) \~ log(Body_mass_female_mean), data = boot_sample) boot_coefs_temp\[j, \] \<- coef(boot_model) }
+
+\# Compute the mean of the bootstrap estimates for each coefficient. boot_mean_temp \<- apply(boot_coefs_temp, 2, mean)
+
+\# Compute the bootstrap 95% CI using the 2.5th and 97.5th percentiles. boot_ci_temp \<- apply(boot_coefs_temp, 2, quantile, probs = c(0.025, 0.975))
+
+\# Store the results for the intercept. results_intercept$Boot_Mean[i] <- boot_mean_temp[1]
+  results_intercept$Boot_CI_Lower\[i\] \<- boot_ci_temp\[1, 1\] results_intercept\$Boot_CI_Upper\[i\] \<- boot_ci_temp\[2, 1\]
+
+#for the slope. results_slope$Boot_Mean[i] <- boot_mean_temp[2]
+  results_slope$Boot_CI_Lower\[i\] \<- boot_ci_temp\[1, 2\] results_slope\$Boot_CI_Upper\[i\] \<- boot_ci_temp\[2, 2\] }
+
+# Load graphing packages
+
+library(ggplot2) library(gridExtra)
+
+# Create the plot for the intercept estimates.
+
+p_intercept \<- ggplot(results_intercept, aes(x = n_boot)) + geom_line(aes(y = Boot_Mean, color = "Boot Mean")) + geom_point(aes(y = Boot_Mean, color = "Boot Mean")) + \# Plot the CI bounds as dotted lines. geom_line(aes(y = Boot_CI_Lower, color = "Boot 95% CI"), linetype = "dotted") + geom_line(aes(y = Boot_CI_Upper, color = "Boot 95% CI"), linetype = "dotted") + \# Add the full model beta value as a horizontal dashed line. geom_hline(aes(yintercept = Full, color = "Full Model"), linetype = "dashed") + labs(title = "Intercept Estimates", x = "Number of Bootstrap Replicates", y = "Intercept") + scale_color_manual( name = "", values = c("Boot Mean" = "blue", "Boot 95% CI" = "green", "Full Model" = "red") ) + theme_minimal() + theme(legend.position = "top")
+
+# Create the plot for the slope estimates.
+
+p_slope \<- ggplot(results_slope, aes(x = n_boot)) + geom_line(aes(y = Boot_Mean, color = "Boot Mean")) + geom_point(aes(y = Boot_Mean, color = "Boot Mean")) + geom_line(aes(y = Boot_CI_Lower, color = "Boot 95% CI"), linetype = "dotted") + geom_line(aes(y = Boot_CI_Upper, color = "Boot 95% CI"), linetype = "dotted") + geom_hline(aes(yintercept = Full, color = "Full Model"), linetype = "dashed") + labs(title = "Slope Estimates", x = "Number of Bootstrap Replicates", y = "Slope") + scale_color_manual( name = "", values = c("Boot Mean" = "blue", "Boot 95% CI" = "green", "Full Model" = "red") ) + theme_minimal() + theme(legend.position = "top")
+
+# Arrange the two plots side-by-side.
+
+grid.arrange(p_intercept, p_slope, ncol = 2)
+
+### \[1\] Using the “KamilarAndCooperData.csv” dataset, run a linear regression looking at log(HomeRange_km2) in relation to log(Body_mass_female_mean) and report your $\beta$ coeffiecients (slope and intercept).
+
+```{r}
+# Direct access to data
+f <- read.csv("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN588_Fall23/KamilarAndCooperData.csv")
+
+# subset data so NA or blank is removed
+df_sub <- subset(f, !is.na(Body_mass_female_mean) & !is.na(HomeRange_km2))
+
+# Use linear regression model on the log transformed variables (Homerange_km2) and (Bodymass_female_mean)
+fit <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = df_sub)
+
+# print summary so we can look at the slope and intercept
+summary(fit)
+
+coefficient <- coef(fit)
+cat("Intercept (β0):", coefficient[1], "\n")
+cat("Slope (β1):", coefficient[2], "\n")
+```
+
+### \[2\] Then, use bootstrapping to sample from your data 1000 times with replacement, each time fitting the same model and calculating the same coefficients. This generates a sampling distribution for each 𝛽coefficient.
+
+```{r}
+# storing baseline estimates which we will later compare to our bootstrap results
+fit_se <- summary(fit)$coefficients[, "Std. Error"]
+fit_ci <- confint(fit)
+
+# set seed for reproducibility
+set.seed(1234)
+
+# setting the number of times we will bootstrap
+n_boot <- 1000
+
+# creating a matrix with initial value set to NA with 1000 rows matching with the times of our bootstrap number and make two column one for intercept and one for the slope 
+boot_coefs <- matrix(NA, nrow = n_boot, ncol = 2)
+
+# naming the columns
+colnames(boot_coefs) <- c("Intercept", "log_Body_mass_female_mean")
+
+# calculate the number of rows in df_sub which represents the sample size and used during bootstrapping
+n <- nrow(df_sub)
+
+# bootstrap start
+for (i in 1:n_boot) {
+  # each time we will take a sample with replacement to obtain sample from the population, 
+  boot_sample <- df_sub[sample(1:n, size = n, replace = TRUE), ]
+  # fit the sample data into the linear log transformed regression model
+  boot_fit <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = boot_sample)
+  # update the matrix we have previously created with the coefficient (the slope and the intercept) of this sample model
+  boot_coefs[i, ] <- coef(boot_fit)
+}
+
+# calculate bootstrap matrix standard errors, this fucntion apply the sd() fucntion to all the columns in the matrix
+boot_se <- apply(boot_coefs, 2, sd)
+
+# calculate the bootstrap 95 percent confidence interval, 
+# apply the quantile function to the columns and extrac the 2.5 percent as well as the 97.5 percentc
+boot_ci <- apply(boot_coefs, 2, quantile, probs = c(0.025, 0.975))
+
+#printing and comapring results
+cat("Model SE from lm():\n")
+print(fit_se)
+cat("\nBootstrap SE:\n")
+print(boot_se)
+
+cat("\nModel 95% CI from confint():\n")
+print(fit_ci)
+cat("\nBootstrap 95% CI:\n")
+print(boot_ci)
+
+### Response to questions: The bootstrap estimates for the standard errors are very similar to those using the lm() model alone. This indicates that the assumptions underlying the lm() method—such as normal ditribution is reasonable. In addition, the 95% confidence intervals derived from the bootstrap procedure are also very similar to those obtained from the entire dataset via confint(). This further corroborates the model and its assumptions' validity.
+```
+
+### Extra Credit
+
+```{r}
+bootstrap_function <- function(d, m, conf.level = 0.95, n = 1000) {
+  # the input m is as characters and need to change it to formula to feed into the lm()
+  model_formula <- as.formula(m)
+  
+  # fit the model into the liner regression model
+  lm_model <- lm(model_formula, data = d)
+  
+  # Extract the slope and intercept coefficient of th model
+  lm_coef <- coef(lm_model)
+  
+  # Retrieves the standard errors for the coefficients from the summary of the linear model
+  lm_se <- summary(lm_model)$coefficients[, "Std. Error"]
+  
+  # calculate the confidence interval for the model
+  lm_ci <- confint(lm_model, level = conf.level)
+  
+  # Define coefficient names from the full model estimates
+  coef_names <- names(lm_coef)
+  
+  # create a matrix to store the bootstrap values
+  boot_coefs <- matrix(NA, nrow = n, ncol = length(coef_names))
+  colnames(boot_coefs) <- coef_names
+  
+  # set seed for reproducibility 
+  set.seed(303)
+  
+  # Determine the sample size in th input data frame d
+  N <- nrow(d)
+  
+  # use for loop like previous to 
+  for (i in 1:n) {
+      # get a sample from 1 to sample size with replacement
+      boot_sample <- d[sample(1:N, size = N, replace = TRUE), ]
+      
+      # Fit linear model on the bootstrap sample.
+      boot_model <- lm(model_formula, data = boot_sample)
+      
+      # Store the estimated coefficients in th  matrix we created fill them row by row
+      boot_coefs[i, ] <- coef(boot_model)
+    }
+  
+  # Compute the mean of the bootstrap coefficient estimates for each coefficient
+  boot_mean <- apply(boot_coefs, 2, mean)
+  
+  # Compute the bootstrap standard errors as the standard deviation of the bootstrap estimates
+  boot_se <- apply(boot_coefs, 2, sd)
+  
+  # Compute the bootstrap confidence intervals.
+  boot_ci <- apply(boot_coefs, 2, quantile, probs = c((1 - conf.level)/2, 1 - (1 - conf.level)/2))
+  
+  # Combine the full-model and bootstrap results into a single data frame.
+  result_df <- data.frame(
+    Coefficient = coef_names,
+    model_Estimate = lm_coef,
+    model_SE = lm_se,
+    model_CI_Lower = lm_ci[, 1],
+    model_Upper = lm_ci[, 2],
+    Bootstrap_Mean = boot_mean,
+    Bootstrap_SE = boot_se,
+    Bootstrap_CI_Lower = boot_ci[1, ],
+    Bootstrap_CI_Upper = boot_ci[2, ]
+  )
+  
+  # Return the resulting data frame so that the caller can review the estimates.
+  return(result_df)
+}
+```
+
+### Testing the function
+
+```{r}
+
+
+f <- read.csv("https://raw.githubusercontent.com/fuzzyatelin/fuzzyatelin.github.io/master/AN588_Fall23/KamilarAndCooperData.csv")
+
+
+# subset data so NA or blank is removed
+df_sub <- subset(f, !is.na(Body_mass_female_mean) & !is.na(HomeRange_km2))
+
+result <- bootstrap_function(df_sub, "log(HomeRange_km2) ~ log(Body_mass_female_mean)")
+
+# Print the results
+print(result)
+
+```
+
+### Extra Credit
+
+\`\`\`{r}
+
+# Fit the full linear model and extract its coefficients.
+
+```{r}
+full_model <- lm(log(HomeRange_km2) ~ log(Body_mass_female_mean), data = df_sub) full_coef <- coef(full_model)
+```
+
+# Create a sequence of bootstrap replicate counts from 10 to 200 by 10.
+
+boot_counts \<- seq(10, 200, by = 10)
+
+# Initialize data frames to store results for the intercept and slope.
+
+results_intercept \<- data.frame( n_boot = boot_counts, Full = full_coef\[1\], Boot_Mean = NA, Boot_CI_Lower = NA, Boot_CI_Upper = NA )
+
+results_slope \<- data.frame( n_boot = boot_counts, Full = full_coef\[2\], Boot_Mean = NA, Boot_CI_Lower = NA, Boot_CI_Upper = NA )
+
+# Set a seed for reproducibility.
+
+set.seed(303)
+
+# Determine the sample size of the data.
+
+N \<- nrow(df_sub)
+
+# Loop over the specified numbers of bootstrap replicates.
+
+for (i in seq_along(boot_counts)) { current_n \<- boot_counts\[i\]
+
+\# Initialize a matrix to store bootstrap coefficient estimates for the current replicate count. boot_coefs_temp \<- matrix(NA, nrow = current_n, ncol = 2) colnames(boot_coefs_temp) \<- names(full_coef)
+
+\# For each bootstrap replicate, sample with replacement and fit the model. for (j in 1:current_n) { boot_sample \<- df_sub\[sample(1:N, size = N, replace = TRUE), \] boot_model \<- lm(log(HomeRange_km2) \~ log(Body_mass_female_mean), data = boot_sample) boot_coefs_temp\[j, \] \<- coef(boot_model) }
+
+\# Compute the mean of the bootstrap estimates for each coefficient. boot_mean_temp \<- apply(boot_coefs_temp, 2, mean)
+
+\# Compute the bootstrap 95% CI using the 2.5th and 97.5th percentiles. boot_ci_temp \<- apply(boot_coefs_temp, 2, quantile, probs = c(0.025, 0.975))
+
+\# Store the results for the intercept. results_intercept$Boot_Mean[i] <- boot_mean_temp[1]
+  results_intercept$Boot_CI_Lower\[i\] \<- boot_ci_temp\[1, 1\] results_intercept\$Boot_CI_Upper\[i\] \<- boot_ci_temp\[2, 1\]
+
+#for the slope. results_slope$Boot_Mean[i] <- boot_mean_temp[2]
+  results_slope$Boot_CI_Lower\[i\] \<- boot_ci_temp\[1, 2\] results_slope\$Boot_CI_Upper\[i\] \<- boot_ci_temp\[2, 2\] }
+
+# Load graphing packages
+
+library(ggplot2) library(gridExtra)
+
+# Create the plot for the intercept estimates.
+
+p_intercept \<- ggplot(results_intercept, aes(x = n_boot)) + geom_line(aes(y = Boot_Mean, color = "Boot Mean")) + geom_point(aes(y = Boot_Mean, color = "Boot Mean")) + \# Plot the CI bounds as dotted lines. geom_line(aes(y = Boot_CI_Lower, color = "Boot 95% CI"), linetype = "dotted") + geom_line(aes(y = Boot_CI_Upper, color = "Boot 95% CI"), linetype = "dotted") + \# Add the full model beta value as a horizontal dashed line. geom_hline(aes(yintercept = Full, color = "Full Model"), linetype = "dashed") + labs(title = "Intercept Estimates", x = "Number of Bootstrap Replicates", y = "Intercept") + scale_color_manual( name = "", values = c("Boot Mean" = "blue", "Boot 95% CI" = "green", "Full Model" = "red") ) + theme_minimal() + theme(legend.position = "top")
+
+# Create the plot for the slope estimates.
+
+p_slope \<- ggplot(results_slope, aes(x = n_boot)) + geom_line(aes(y = Boot_Mean, color = "Boot Mean")) + geom_point(aes(y = Boot_Mean, color = "Boot Mean")) + geom_line(aes(y = Boot_CI_Lower, color = "Boot 95% CI"), linetype = "dotted") + geom_line(aes(y = Boot_CI_Upper, color = "Boot 95% CI"), linetype = "dotted") + geom_hline(aes(yintercept = Full, color = "Full Model"), linetype = "dashed") + labs(title = "Slope Estimates", x = "Number of Bootstrap Replicates", y = "Slope") + scale_color_manual( name = "", values = c("Boot Mean" = "blue", "Boot 95% CI" = "green", "Full Model" = "red") ) + theme_minimal() + theme(legend.position = "top")
+
+# Arrange the two plots side-by-side.
+
+grid.arrange(p_intercept, p_slope, ncol = 2)
